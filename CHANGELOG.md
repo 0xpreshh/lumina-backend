@@ -19,7 +19,7 @@ Breaking changes are rare and advance the major version. Deprecation notices app
 ## [Unreleased]
 
 ### Deprecated
-- `Query.sponsoredAccounts`: deprecated in favor of cursor-paginated `Query.sponsoredAccountsPage` returning `AccountPage` (default limit 20, max 100). Removal planned for 2026-10-01 (#387)
+- `Query.accountSigners(address:)`: deprecated in favour of `Account.signers` via `Query.account(address:)`. Planned removal on 2027-05-19 per `docs/SCHEMA_DEPRECATION.md` (#388).
 
 ### Added
 - Each release publishes the GraphQL schema it serves: pushing a `vX.Y.Z` tag runs `.github/workflows/release.yml`, which creates the GitHub release with `schema.graphql`, `schema.introspection.json` and `SHA256SUMS` attached, and fails unless the tag matches every package version and the schema matches its committed snapshot. `GET /health` now reports the service `version`, so a client can fetch the schema of the server it talks to. Fetching a version's schema is documented in `docs/API_GUIDE.md` ("API Versioning"); cutting a release in `docs/RELEASING.md` (#267)
