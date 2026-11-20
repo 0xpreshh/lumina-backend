@@ -23,6 +23,7 @@ import {
   getContractStorageEntries,
   getAccountSigners,
   getSponsoredAccounts,
+  getSponsoredAccountsPage,
   getContractDeployment,
   getContracts,
   getNetworkStats,
@@ -170,6 +171,21 @@ async function resolveAccount(address: string, ctx: Context, network: NetworkCon
     flags: horizonAccount.flags,
     thresholds: horizonAccount.thresholds,
   });
+}
+
+
+function parseGranularity(value?: string | null): 'hour' | 'day' {
+  if (value === undefined || value === null || value === 'HOUR') return 'hour';
+  if (value === 'DAY') return 'day';
+  throw new GraphQLError(`Unsupported granularity "${value}". Expected HOUR or DAY.`, {
+    extensions: { code: ERROR_CODES.BAD_USER_INPUT },
+  });
+}
+
+function formatGranularity(dbValue: string): 'HOUR' | 'DAY' {
+  if (dbValue === 'hour') return 'HOUR';
+  if (dbValue === 'day') return 'DAY';
+  throw new Error(`Unexpected stored granularity "${dbValue}".`);
 }
 
 export const resolvers = {
@@ -787,6 +803,32 @@ export const resolvers = {
       const limit = getAggregateLimit(args.limit, MAX_AGGREGATE_ROWS);
       return getSponsoredAccounts(ctx.pool, network.name, args.sponsorAddress, limit);
     },
+    async sponsoredAccountsPage(
+      _: unknown,
+      args: { network?: string | null; sponsorAddress: string; limit?: number | null; cursor?: string | null },
+      ctx: Context
+    ) {
+      const network = networkArgument(args, ctx);
+      const limit = getPageSize(args.limit, DEFAULT_PAGE_LIMIT);
+      const items = await getSponsoredAccountsPage(
+        ctx.pool,
+        network.name,
+        args.sponsorAddress,
+        limit,
+        args.cursor
+      );
+      return {
+        items,
+        pageInfo: pageInfo(
+          KEYSETS.sponsoredAccountsPage,
+          items,
+          limit,
+          (account) => [account.address],
+          'FORWARD',
+          Boolean(args.cursor)
+        ),
+      };
+    },
 
     // ─── #227: Contracts & Deployments ───────────────────────────────────
     async contract(
@@ -798,6 +840,7 @@ export const resolvers = {
       const row = await getContractDeployment(ctx.pool, network.name, args.contractId);
       if (!row) return null;
       return {
+        network: network.name,
         contractId: row.contract_id,
         deployer: row.deployer,
         wasmHash: row.wasm_hash,
@@ -814,6 +857,7 @@ export const resolvers = {
       const limit = getPageSize(args.limit, 20);
       const rows = await getContracts(ctx.pool, network.name, limit, args.cursor ?? undefined);
       return rows.map((row) => ({
+        network: network.name,
         contractId: row.contract_id,
         deployer: row.deployer,
         wasmHash: row.wasm_hash,
@@ -825,11 +869,11 @@ export const resolvers = {
     // ─── #228: Network Statistics ────────────────────────────────────────
     async networkStats(
       _: unknown,
-      args: { network?: string | null; startTime: string; endTime: string; granularity?: string; limit?: number | null },
+      args: { network?: string | null; startTime: string; endTime: string; granularity?: string | null; limit?: number | null },
       ctx: Context
     ) {
       const network = networkArgument(args, ctx);
-      const granularity = args.granularity === 'day' ? 'day' : 'hour';
+      const granularity = parseGranularity(args.granularity);
       const limit = getAggregateLimit(args.limit, MAX_AGGREGATE_ROWS);
       assertRangeWithinLimit(args.startTime, args.endTime, granularity, limit);
       const rows = await getNetworkStats(
@@ -854,7 +898,7 @@ export const resolvers = {
       _: unknown,
       args: {
         network?: string | null;
-        granularity?: string;
+        granularity?: string | null;
         startTime: string;
         endTime: string;
         limit?: number | null;
@@ -862,7 +906,7 @@ export const resolvers = {
       ctx: Context
     ) {
       const network = networkArgument(args, ctx);
-      const granularity = args.granularity === 'day' ? 'day' : 'hour';
+      const granularity = parseGranularity(args.granularity);
       const limit = getAggregateLimit(args.limit, MAX_AGGREGATE_ROWS);
       assertRangeWithinLimit(args.startTime, args.endTime, granularity, limit);
       const rows = await getActivityRollups(
@@ -875,7 +919,7 @@ export const resolvers = {
       );
       return rows.map((row) => ({
         bucketStart: row.bucket_start,
-        granularity: row.granularity,
+        granularity: formatGranularity(row.granularity),
         network: row.network,
         transactionCount: row.transaction_count,
         operationCount: row.operation_count,
